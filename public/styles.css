@@ -1,14 +1,15 @@
 :root {
-  --bg: #f4f7fb;
+  --bg: #0a1324;
+  --bg-2: #121f33;
   --primary: #0b3b67;
   --primary-strong: #061f36;
   --accent: #ffb703;
   --success: #1bbf73;
-  --text: #10233b;
-  --muted: #5b7186;
-  --card: #ffffff;
-  --line: #dfeaf5;
-  --shadow: 0 16px 36px rgba(8, 30, 58, 0.12);
+  --text: #ecf3ff;
+  --muted: #bfd0eb;
+  --card: rgba(14, 21, 35, 0.82);
+  --line: rgba(255, 255, 255, 0.12);
+  --shadow: 0 18px 38px rgba(0, 0, 0, 0.25);
 }
 
 * { box-sizing: border-box; }
@@ -17,7 +18,7 @@ html, body {
   margin: 0;
   height: 100%;
   font-family: Arial, Helvetica, sans-serif;
-  background: linear-gradient(180deg, #edf5ff 0%, #e9eff7 100%);
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
   color: var(--text);
 }
 
@@ -44,13 +45,19 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+}
+
+.brand-logo {
+  width: clamp(110px, 18vw, 180px);
+  height: auto;
+  filter: drop-shadow(0 10px 18px rgba(0,0,0,0.25));
 }
 
 .brand-mark {
   font-size: clamp(1.8rem, 3vw, 2.8rem);
   font-weight: 800;
-  color: var(--primary-strong);
+  color: var(--text);
 }
 
 .brand-sub {
@@ -79,6 +86,7 @@ body {
   border-radius: 28px;
   box-shadow: var(--shadow);
   padding: clamp(24px, 4vw, 48px);
+  backdrop-filter: blur(10px);
 }
 
 .eyebrow {
