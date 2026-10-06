@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Pesquisa de Satisfação</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-wrap">
+          <div class="brand-mark">Viva Maracanã</div>
+          <span class="brand-sub">Tour Experience</span>
+        </div>
+      </header>
+
+      <main class="screen active" id="screen-language">
+        <section class="card intro-card">
+          <p class="eyebrow">Quick feedback</p>
+          <h1 id="welcome-title">Como você avalia sua experiência?</h1>
+          <p id="welcome-text">Escolha seu idioma para responder em poucos segundos.</p>
+
+          <div class="lang-grid">
+            <button class="lang-btn active" data-lang="pt">Português</button>
+            <button class="lang-btn" data-lang="en">English</button>
+            <button class="lang-btn" data-lang="es">Español</button>
+          </div>
+
+          <button id="start-survey" class="primary-btn">Continuar</button>
+        </section>
+      </main>
+
+      <main class="screen hidden" id="screen-question">
+        <section class="card question-card">
+          <p class="eyebrow" id="question-section-label">Ativações do Tour</p>
+          <h2 id="question-title">Como você avalia as ativações do Tour?</h2>
+
+          <div class="faces" id="faces"></div>
+        </section>
+      </main>
+
+      <main class="screen hidden" id="screen-thanks">
+        <section class="card thanks-card">
+          <div class="thanks-emoji">✅</div>
+          <h2 id="thanks-title">Obrigado!</h2>
+          <p id="thanks-text">Sua avaliação foi enviada com sucesso.</p>
+          <p id="thanks-contact" class="thanks-contact hidden"></p>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
