@@ -3,30 +3,61 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 const dataDir = path.join(__dirname, 'data');
 const dbPath = path.join(dataDir, 'pesquisa.db');
+const usePostgres = Boolean(process.env.DATABASE_URL);
 
-fs.mkdirSync(dataDir, { recursive: true });
-const db = new Database(dbPath);
+let db = null;
+let pgPool = null;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS respostas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    language TEXT NOT NULL,
-    category TEXT NOT NULL,
-    rating INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-`);
+if (usePostgres) {
+  pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.PGSSL === 'disable' ? false : { rejectUnauthorized: false }
+  });
+} else {
+  const Database = require('better-sqlite3');
+  fs.mkdirSync(dataDir, { recursive: true });
+  db = new Database(dbPath);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS respostas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      language TEXT NOT NULL,
+      category TEXT NOT NULL,
+      rating INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_respostas_categoria
+    ON respostas (category, created_at);
+  `);
+}
 
-db.exec(`
-  CREATE INDEX IF NOT EXISTS idx_respostas_categoria
-  ON respostas (category, created_at);
-`);
+if (pgPool) {
+  pgPool.query(`
+    CREATE TABLE IF NOT EXISTS respostas (
+      id SERIAL PRIMARY KEY,
+      language TEXT NOT NULL,
+      category TEXT NOT NULL,
+      rating INTEGER NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `).catch((error) => {
+    console.error('Erro ao criar tabela PostgreSQL:', error.message);
+  });
+
+  pgPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_respostas_categoria
+    ON respostas (category, created_at);
+  `).catch((error) => {
+    console.error('Erro ao criar índice PostgreSQL:', error.message);
+  });
+}
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '8kb' }));
@@ -92,7 +123,18 @@ const QUESTION_TEXT = {
   }
 };
 
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
+  if (usePostgres && pgPool) {
+    try {
+      await pgPool.query('SELECT 1');
+      res.json({ ok: true, database: 'postgres' });
+      return;
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+      return;
+    }
+  }
+
   res.json({ ok: true, database: dbPath });
 });
 
@@ -105,50 +147,98 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-app.get('/api/stats', (req, res) => {
-  const totals = db.prepare(`
-    SELECT category, rating, COUNT(*) AS total
-    FROM respostas
-    GROUP BY category, rating
-    ORDER BY category, rating
-  `).all();
+app.get('/api/stats', async (req, res) => {
+  try {
+    if (usePostgres && pgPool) {
+      const [{ rows: totals }, { rows: categoryTotals }, { rows: overallRows }] = await Promise.all([
+        pgPool.query(`
+          SELECT category, rating, COUNT(*)::int AS total
+          FROM respostas
+          GROUP BY category, rating
+          ORDER BY category, rating
+        `),
+        pgPool.query(`
+          SELECT category, COUNT(*)::int AS total
+          FROM respostas
+          GROUP BY category
+          ORDER BY category
+        `),
+        pgPool.query(`SELECT COUNT(*)::int AS total FROM respostas`)
+      ]);
 
-  const byCategory = {};
-  const categoryTotals = db.prepare(`
-    SELECT category, COUNT(*) AS total
-    FROM respostas
-    GROUP BY category
-    ORDER BY category
-  `).all();
+      const byCategory = {};
+      for (const item of categoryTotals) {
+        byCategory[item.category] = Number(item.total);
+      }
 
-  for (const item of categoryTotals) {
-    byCategory[item.category] = Number(item.total);
-  }
+      const result = {};
+      for (const category of ['ativacoes', 'acervo', 'checkout']) {
+        result[category] = {
+          total: Number(byCategory[category] || 0),
+          ratings: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+        };
+      }
 
-  const result = {};
-  for (const category of ['ativacoes', 'acervo', 'checkout']) {
-    result[category] = {
-      total: Number(byCategory[category] || 0),
-      ratings: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
-    };
-  }
+      for (const row of totals) {
+        if (result[row.category]) {
+          result[row.category].ratings[String(row.rating)] = Number(row.total);
+        }
+      }
 
-  for (const row of totals) {
-    if (result[row.category]) {
-      result[row.category].ratings[String(row.rating)] = Number(row.total);
+      return res.json({
+        total: Number(overallRows[0]?.total || 0),
+        byCategory: result,
+        updatedAt: new Date().toISOString()
+      });
     }
+
+    const totals = db.prepare(`
+      SELECT category, rating, COUNT(*) AS total
+      FROM respostas
+      GROUP BY category, rating
+      ORDER BY category, rating
+    `).all();
+
+    const byCategory = {};
+    const categoryTotals = db.prepare(`
+      SELECT category, COUNT(*) AS total
+      FROM respostas
+      GROUP BY category
+      ORDER BY category
+    `).all();
+
+    for (const item of categoryTotals) {
+      byCategory[item.category] = Number(item.total);
+    }
+
+    const result = {};
+    for (const category of ['ativacoes', 'acervo', 'checkout']) {
+      result[category] = {
+        total: Number(byCategory[category] || 0),
+        ratings: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+      };
+    }
+
+    for (const row of totals) {
+      if (result[row.category]) {
+        result[row.category].ratings[String(row.rating)] = Number(row.total);
+      }
+    }
+
+    const overall = db.prepare(`SELECT COUNT(*) AS total FROM respostas`).get();
+
+    res.json({
+      total: Number(overall.total || 0),
+      byCategory: result,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Erro ao consultar estatísticas:', error);
+    res.status(500).json({ ok: false, error: 'Erro interno ao consultar estatísticas' });
   }
-
-  const overall = db.prepare(`SELECT COUNT(*) AS total FROM respostas`).get();
-
-  res.json({
-    total: Number(overall.total || 0),
-    byCategory: result,
-    updatedAt: new Date().toISOString()
-  });
 });
 
-app.post('/api/submit', (req, res) => {
+app.post('/api/submit', async (req, res) => {
   try {
     const language = String(req.body.language || 'pt').toLowerCase();
     const category = String(req.body.category || '').trim().toLowerCase();
@@ -169,10 +259,17 @@ app.post('/api/submit', (req, res) => {
       return res.status(400).json({ ok: false, error: 'Avaliação inválida' });
     }
 
-    const stmt = db.prepare(`
-      INSERT INTO respostas (language, category, rating) VALUES (?, ?, ?)
-    `);
-    stmt.run(language, category, rating);
+    if (usePostgres && pgPool) {
+      await pgPool.query(
+        `INSERT INTO respostas (language, category, rating) VALUES ($1, $2, $3)`,
+        [language, category, rating]
+      );
+    } else {
+      const stmt = db.prepare(`
+        INSERT INTO respostas (language, category, rating) VALUES (?, ?, ?)
+      `);
+      stmt.run(language, category, rating);
+    }
 
     const contactEmail = 'contato@maracatour.com.br';
     const negative = rating <= 3;
